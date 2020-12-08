@@ -1,38 +1,74 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
-	amqppool "github.com/cs-sea/apqp-pool"
+	"github.com/streadway/amqp"
+
+	amqppool "github.com/cs-sea/amqp-pool"
 )
 
 func main() {
-	pool := amqppool.NewPool(5, "amqp://guest:guest@localhost:5672/")
+	pool := amqppool.NewConnectionPool(&amqppool.ConnPoolConfig{
+		ConnNum: 3,
+		Url:     "amqp://guest:guest@localhost:5672/",
+	})
 
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
-		channel, err := pool.GetChannel()
+
+		conn, err := pool.Get()
+
 		if err != nil {
-			writer.WriteHeader(500)
-			return
-		}
-		b, err := json.Marshal(channel)
-		if err != nil {
-			writer.WriteHeader(501)
-			return
+			log.Fatalln(err)
 		}
 
-		fmt.Println(b)
-		_, err = writer.Write(b)
+		channelPool := conn.GetChannelPool()
+
+		ch, err := channelPool.Get()
+
 		if err != nil {
-			writer.WriteHeader(502)
-			return
+			failOnError(err, "get channel")
 		}
-		fmt.Println(b)
+
+		_, err = ch.QueueDeclare(&amqppool.QueueDeclareConfig{
+			Name:       "task_queue",
+			Durable:    true,
+			AutoDelete: false,
+			Exclusive:  false,
+			NoWait:     false,
+			Args:       nil,
+		})
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		err = ch.Publish(&amqppool.PublishData{
+			Exchange:  "",
+			Key:       "take_queue",
+			Mandatory: false,
+			Immediate: false,
+			Msg: amqp.Publishing{
+				DeliveryMode: amqp.Persistent,
+				ContentType:  "text/plain",
+				Body:         []byte("hello"),
+			},
+		})
+
+		channelPool.Release(ch)
+		pool.Release(conn)
+		//pool.ReleaseChannel(ch)
+		failOnError(err, "publish")
 	})
-
 	fmt.Println(http.ListenAndServe("localhost:9999", mux))
+
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Printf("%s: %s", msg, err)
+	}
 }
