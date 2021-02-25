@@ -1,4 +1,4 @@
-module github.com/cs-sea/amqp-pool
+module github.com/cs-sea/rabbit
 
 go 1.15
 
