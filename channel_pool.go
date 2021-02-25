@@ -1,4 +1,4 @@
-package amqp_pool
+package rabbit
 
 import (
 	"container/list"

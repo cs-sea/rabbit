@@ -1,4 +1,4 @@
-package amqp_pool
+package rabbit
 
 import (
 	"github.com/streadway/amqp"
@@ -13,11 +13,11 @@ type PublishData struct {
 	Key       string
 	Mandatory bool // 如果没有队列 true 返回给生产者 false 会丢掉
 	Immediate bool // 如果没有消费者 true 返回给生产者，false 丢入队列
-	Msg       amqp.Publishing
+	Msg       *amqp.Publishing
 }
 
 // name, kind string, durable, autoDelete, internal, noWait bool, args Table
-type ExchangeDeclareConfig struct {
+type Exchange struct {
 	Name       string
 	Kind       string
 	Durable    bool
@@ -28,7 +28,7 @@ type ExchangeDeclareConfig struct {
 }
 
 // name string, durable, autoDelete, exclusive, noWait bool, args Table
-type QueueDeclareConfig struct {
+type Queue struct {
 	Name       string
 	Durable    bool
 	AutoDelete bool
@@ -38,7 +38,7 @@ type QueueDeclareConfig struct {
 }
 
 type ChannelService interface {
-	Publish() error
+	Publish(data *PublishData) error
 }
 
 func NewChannel(ch *amqp.Channel) *Channel {
@@ -46,13 +46,21 @@ func NewChannel(ch *amqp.Channel) *Channel {
 }
 
 func (c *Channel) Publish(data *PublishData) error {
-	return c.ch.Publish(data.Exchange, data.Key, data.Mandatory, data.Immediate, data.Msg)
+	return c.ch.Publish(data.Exchange, data.Key, data.Mandatory, data.Immediate, *data.Msg)
 }
 
-func (c *Channel) ExchangeDeclare(config *ExchangeDeclareConfig) error {
-	return c.ch.ExchangeDeclare(config.Name, config.Kind, config.Durable, config.AutoDelete, config.Internal, config.NoWait, config.Args)
+func (c *Channel) ExchangeDeclare(ex *Exchange) error {
+	return c.ch.ExchangeDeclare(ex.Name, ex.Kind, ex.Durable, ex.AutoDelete, ex.Internal, ex.NoWait, ex.Args)
 }
 
-func (c *Channel) QueueDeclare(config *QueueDeclareConfig) (amqp.Queue, error) {
-	return c.ch.QueueDeclare(config.Name, config.Durable, config.AutoDelete, config.Exclusive, config.NoWait, config.Args)
+func (c *Channel) QueueDeclare(queue *Queue) (amqp.Queue, error) {
+	return c.ch.QueueDeclare(queue.Name, queue.Durable, queue.AutoDelete, queue.Exclusive, queue.NoWait, queue.Args)
+}
+
+func (c *Channel) QueueBind(queueName, key, exchangeName string, args amqp.Table) error {
+	return c.ch.QueueBind(queueName, key, exchangeName, true, args)
+}
+
+func (c *Channel) Consume(name string) (<-chan amqp.Delivery, error) {
+	return c.ch.Consume(name, "", false, false, false, false, nil)
 }

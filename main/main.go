@@ -1,74 +1,110 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"log"
-	"net/http"
-
-	"github.com/streadway/amqp"
+	rabbit "github.com/cs-sea/amqp-pool/pb"
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
+	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
+	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
+	grpc_validator "github.com/grpc-ecosystem/go-grpc-middleware/validator"
+	"github.com/rs/xid"
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
+	"net"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
+	"time"
 
 	amqppool "github.com/cs-sea/amqp-pool"
 )
 
-func main() {
-	pool := amqppool.NewConnectionPool(&amqppool.ConnPoolConfig{
-		ConnNum: 3,
-		Url:     "amqp://guest:guest@localhost:5672/",
-	})
-
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
-
-		conn, err := pool.Get()
-
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		channelPool := conn.GetChannelPool()
-
-		ch, err := channelPool.Get()
-
-		if err != nil {
-			failOnError(err, "get channel")
-		}
-
-		_, err = ch.QueueDeclare(&amqppool.QueueDeclareConfig{
-			Name:       "task_queue",
-			Durable:    true,
-			AutoDelete: false,
-			Exclusive:  false,
-			NoWait:     false,
-			Args:       nil,
-		})
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		err = ch.Publish(&amqppool.PublishData{
-			Exchange:  "",
-			Key:       "take_queue",
-			Mandatory: false,
-			Immediate: false,
-			Msg: amqp.Publishing{
-				DeliveryMode: amqp.Persistent,
-				ContentType:  "text/plain",
-				Body:         []byte("hello"),
-			},
-		})
-
-		channelPool.Release(ch)
-		pool.Release(conn)
-		//pool.ReleaseChannel(ch)
-		failOnError(err, "publish")
-	})
-	fmt.Println(http.ListenAndServe("localhost:9999", mux))
-
+type APIServer struct {
+	p amqppool.Producer
 }
 
-func failOnError(err error, msg string) {
+func NewAPIServer(p amqppool.Producer) *APIServer {
+	return &APIServer{p: p}
+}
+
+func (a *APIServer) Push(ctx context.Context, req *rabbit.PushMessageRequest) (*rabbit.EmptyResponse, error) {
+	fmt.Printf("%+v", req)
+	err := a.p.Publish(ctx, &amqppool.Exchange{
+		Name: req.Exchange.Name,
+		Kind: req.Exchange.Kind.String(),
+	}, &amqppool.Message{
+		Body:       req.Message,
+		RoutingKey: req.Key,
+	})
+
+	fmt.Println(err)
+	return &rabbit.EmptyResponse{}, nil
+}
+
+var (
+	serverDefaultStackSize = 4 << 10
+)
+
+func main() {
+
+	logger := logrus.NewEntry(logrus.New())
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", 8888))
 	if err != nil {
-		log.Printf("%s: %s", msg, err)
+		panic(err)
 	}
+
+	logger.Println("start rpc")
+
+	gs := grpc.NewServer(
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time: 10 * time.Minute,
+		}),
+		grpc_middleware.WithUnaryServerChain(
+			grpc_ctxtags.UnaryServerInterceptor(
+				grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor),
+				grpc_ctxtags.WithFieldExtractor(func(fullMethod string, req interface{}) map[string]interface{} {
+					fields := map[string]interface{}{"request_id": xid.New().String()}
+					return fields
+				}),
+			),
+			grpc_logrus.UnaryServerInterceptor(logger),
+			grpc_logrus.PayloadUnaryServerInterceptor(
+				logger, func(ctx context.Context, fullMethodName string, servingObject interface{}) bool {
+					return true
+				},
+			),
+			grpc_validator.UnaryServerInterceptor(),
+			grpc_recovery.UnaryServerInterceptor(grpc_recovery.WithRecoveryHandler(func(p interface{}) error {
+				err, ok := p.(error)
+				if !ok {
+					err = fmt.Errorf("%v", p)
+				}
+				stack := make([]byte, serverDefaultStackSize)
+				length := runtime.Stack(stack, false)
+				logger.WithError(err).Errorf("recovered from panic: %v [stack]: %s", err, stack[:length])
+				return status.Errorf(codes.Internal, "Unexcepted internal server error")
+			})),
+		),
+	)
+	rabbitService := amqppool.NewRabbit(&amqppool.Options{})
+
+	producer := amqppool.NewProducerService(rabbitService)
+	apiServer := NewAPIServer(producer)
+	rabbit.RegisterRabbitServiceServer(gs, apiServer)
+
+	go gs.Serve(lis)
+
+	// Graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+
+	fmt.Println("exit")
+	gs.GracefulStop()
 }

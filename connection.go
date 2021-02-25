@@ -1,4 +1,4 @@
-package amqp_pool
+package rabbit
 
 import (
 	"container/list"
@@ -12,7 +12,7 @@ type Connection struct {
 }
 
 type ConnectionConfig struct {
-	ChanNum uint16
+	ChanNum int
 	Url     string
 }
 
@@ -24,7 +24,7 @@ func NewConnection(config *ConnectionConfig) *Connection {
 	}
 
 	chList := list.New()
-	for i := uint16(0); i < config.ChanNum; i++ {
+	for i := 0; i < config.ChanNum; i++ {
 		ch, err := c.Channel()
 		if err != nil {
 			log.Fatalln(err)

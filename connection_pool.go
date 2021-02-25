@@ -1,4 +1,4 @@
-package amqp_pool
+package rabbit
 
 import (
 	"container/list"
@@ -9,21 +9,30 @@ type ConnectionPool struct {
 	m        *sync.Cond
 	connList *list.List
 }
-type ConnPoolConfig struct {
-	ConnNum uint16
-	Url     string
+type ConnPoolOptions struct {
+	ConnNum    int
+	Url        string
+	ChannelNum int
 }
 
-func NewConnectionPool(config *ConnPoolConfig) *ConnectionPool {
-	m := sync.NewCond(new(sync.Mutex))
+const (
+	DefaultConnNum    = 1
+	DefaultChannelNum = 1
 
+	DefaultHost = "amqp://guest:guest@localhost:5672/"
+)
+
+func NewConnectionPool(opts *ConnPoolOptions) *ConnectionPool {
+	setDefaultConfig(opts)
+
+	m := sync.NewCond(new(sync.Mutex))
 	connList := list.New()
 
-	for i := uint16(0); i < config.ConnNum; i++ {
+	for i := 0; i < opts.ConnNum; i++ {
 
 		conn := NewConnection(&ConnectionConfig{
-			ChanNum: 5,
-			Url:     "amqp://guest:guest@localhost:5672/",
+			ChanNum: opts.ChannelNum,
+			Url:     opts.Url,
 		})
 
 		connList.PushBack(conn)
@@ -55,4 +64,18 @@ func (c *ConnectionPool) Release(conn *Connection) {
 
 	c.connList.PushBack(conn)
 	c.m.Signal()
+}
+
+func setDefaultConfig(opt *ConnPoolOptions) {
+	if opt.ConnNum == 0 {
+		opt.ConnNum = DefaultConnNum
+	}
+
+	if opt.ChannelNum == 0 {
+		opt.ChannelNum = DefaultChannelNum
+	}
+
+	if opt.Url == "" {
+		opt.Url = DefaultHost
+	}
 }

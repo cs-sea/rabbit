@@ -6,7 +6,7 @@
 *.dylib
 
 main/main
-amqp-pool
+rabbit
 
 
 # Test binary, built with `go test -c`

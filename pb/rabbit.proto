@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package rabbit;
+
+option go_package = ".;pb";
+
+service RabbitService {
+  rpc Push(PushMessageRequest) returns(EmptyResponse);
+}
+
+message PushMessageRequest {
+  Exchange exchange = 1;
+  string key = 2;
+  bytes message = 3;
+}
+
+message Exchange {
+  string name = 1;
+  enum KindGroup {
+    direct = 0;
+    fanout = 1;
+  }
+  KindGroup kind = 2; // 类型
+}
+
+message EmptyResponse {}
