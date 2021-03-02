@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	rabbit "github.com/cs-sea/amqp-pool/pb"
+	rabbit "github.com/cs-sea/rabbit/pb"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
 	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
@@ -22,7 +22,7 @@ import (
 	"syscall"
 	"time"
 
-	amqppool "github.com/cs-sea/amqp-pool"
+	amqppool "github.com/cs-sea/rabbit"
 )
 
 type APIServer struct {
