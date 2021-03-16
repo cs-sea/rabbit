@@ -3,7 +3,7 @@
 set -e
 
 PROJECT=rabbit
-LOG_DIR=/opt/var/$PROJECT/logs
+LOG_DIR=/tmp/var/$PROJECT/logs
 
 mkdir -p $LOG_DIR
 if [ "$?" != 0 ]; then

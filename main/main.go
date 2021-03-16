@@ -3,6 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
+	"time"
+
 	rabbit "github.com/cs-sea/rabbit/pb"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
@@ -15,14 +22,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
-	"net"
-	"os"
-	"os/signal"
-	"runtime"
-	"syscall"
-	"time"
 
 	amqppool "github.com/cs-sea/rabbit"
+	_ "github.com/cs-sea/rabbit/compile"
 )
 
 type APIServer struct {
